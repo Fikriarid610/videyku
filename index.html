@@ -1,0 +1,260 @@
+
+const LINKS = [
+  "https://asiafilm.org/4/20e4616b435782a6638e78ccc0d8c82d",
+  "https://uplcm.com/4/12309365"
+];
+
+const HTML = `<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Videyku</title>
+<style>
+*{box-sizing:border-box}
+body{margin:0;font-family:Arial;background:white;color:#111827}
+header{height:110px;padding:22px;display:flex;justify-content:space-between;align-items:center}
+.logo{font-size:38px;font-weight:800}
+.btn{background:#111827;color:white;border:0;border-radius:30px;padding:15px 25px;font-weight:bold}
+main{max-width:700px;margin:auto;padding:10px 20px}
+.player{position:relative;background:#000;width:100%;aspect-ratio:9/16;max-height:80vh}
+video{width:100%;height:100%;object-fit:contain}
+.play{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);width:110px;height:110px;border:0;border-radius:50%;background:#ffffffed}
+.play:after{content:"";display:block;margin:auto;margin-left:42px;border-top:23px solid transparent;border-bottom:23px solid transparent;border-left:32px solid black}
+.controls{display:flex;align-items:center;gap:10px;padding:12px 0}
+input[type=range]{flex:1;min-width:30px}
+.panel{padding:20px;border:1px solid #ddd;border-radius:15px;margin:20px 0}
+.field{width:100%;padding:13px;margin:10px 0 18px;border:1px solid #ccc;border-radius:8px;font-size:16px}
+.hide{display:none}
+</style>
+</head>
+<body>
+<header>
+<div class="logo">videy</div>
+<button class="btn" onclick="location.href='/?upload=1'">Upload</button>
+</header>
+
+<main>
+<section id="watch" class="hide">
+<div class="player" id="player">
+<video id="video" playsinline preload="metadata"></video>
+<button class="play" id="play"></button>
+</div>
+<div class="controls">
+<button class="btn" id="toggle">▶</button>
+<span id="time">0:00 / 0:00</span>
+<input id="seek" type="range" min="0" max="1000" value="0">
+<button id="mute">🔊</button>
+<button id="full">⛶</button>
+</div>
+</section>
+
+<section id="upload" class="panel hide">
+<h2>Upload video</h2>
+<p>Password admin</p>
+<input class="field" id="password" type="password" placeholder="Password">
+<p>Pilih video</p>
+<input class="field" id="file" type="file" accept="video/*">
+<p>Judul video</p>
+<input class="field" id="title" placeholder="Nama video">
+<button class="btn" id="send">Upload video</button>
+<p id="status"></p>
+</section>
+</main>
+
+<script>
+const $=id=>document.getElementById(id);
+const path=location.pathname;
+const isVideo=path.startsWith("/v/");
+const isUpload=new URLSearchParams(location.search).get("upload")==="1";
+
+if(isVideo){
+$("watch").classList.remove("hide");
+const id=path.split("/")[2];
+const video=$("video");
+
+video.src="/api/media/"+encodeURIComponent(id);
+
+function start(){
+const link=LINKS[Math.floor(Math.random()*LINKS.length)];
+window.open(link,"_blank");
+video.play().catch(()=>{});
+}
+
+$("play").onclick=start;
+$("toggle").onclick=()=>{
+if(video.paused)start();
+else video.pause();
+};
+video.onclick=()=>{
+if(video.paused)start();
+else video.pause();
+};
+
+video.onplay=()=>{
+$("play").classList.add("hide");
+$("toggle").textContent="Ⅱ";
+};
+video.onpause=()=>{
+$("play").classList.remove("hide");
+$("toggle").textContent="▶";
+};
+
+const fmt=n=>Number.isFinite(n)?
+Math.floor(n/60)+":"+String(Math.floor(n%60)).padStart(2,"0"):"0:00";
+
+video.ontimeupdate=()=>{
+$("time").textContent=fmt(video.currentTime)+" / "+fmt(video.duration);
+if(video.duration)$("seek").value=video.currentTime/video.duration*1000;
+};
+$("seek").oninput=()=>{
+if(video.duration)video.currentTime=$("seek").value/1000*video.duration;
+};
+$("mute").onclick=()=>{
+video.muted=!video.muted;
+$("mute").textContent=video.muted?"🔇":"🔊";
+};
+$("full").onclick=()=>{
+if(document.fullscreenElement)document.exitFullscreen();
+else $("player").requestFullscreen?.();
+};
+}else if(isUpload){
+$("upload").classList.remove("hide");
+}else{
+$("watch").classList.remove("hide");
+}
+
+$("send").onclick=async()=>{
+const file=$("file").files[0];
+const status=$("status");
+const btn=$("send");
+
+if(!file){status.textContent="Pilih video dahulu";return;}
+if(file.size>95*1024*1024){status.textContent="Maksimal 95 MB";return;}
+
+btn.disabled=true;
+status.textContent="Sedang upload...";
+
+try{
+const data=new FormData();
+data.append("file",file);
+data.append("title",$("title").value||file.name);
+
+const response=await fetch("/api/upload",{
+method:"POST",
+headers:{Authorization:"Bearer "+$("password").value},
+body:data
+});
+const result=await response.json();
+if(!response.ok)throw Error(result.error||"Upload gagal");
+
+status.innerHTML="Berhasil! Link video:<br><a href='"+result.url+"'>"+result.url+"</a>";
+}catch(e){
+status.textContent=e.message;
+}finally{
+btn.disabled=false;
+}
+};
+</script>
+</body>
+</html>`;
+
+const json=(data,status=200)=>new Response(JSON.stringify(data),{
+status,
+headers:{"content-type":"application/json"}
+});
+
+export default {
+async fetch(request,env){
+const url=new URL(request.url);
+const path=url.pathname;
+
+if(path==="/api/upload"&&request.method==="POST"){
+if(!env.ADMIN_PASSWORD||request.headers.get("Authorization")!=="Bearer "+env.ADMIN_PASSWORD)
+return json({error:"Password salah atau belum diatur"},401);
+
+try{
+const form=await request.formData();
+const file=form.get("file");
+if(!file||typeof file.stream!=="function"||!file.type.startsWith("video/"))
+return json({error:"File video tidak valid"},400);
+if(file.size>95*1024*1024)
+return json({error:"Maksimal 95 MB"},413);
+
+const id=crypto.randomUUID().replaceAll("-","").slice(0,16);
+const ext=(file.name.split(".").pop()||"mp4").replace(/[^a-z0-9]/gi,"").slice(0,8)||"mp4";
+const key="videos/"+id+"."+ext;
+
+await env.VIDEOS.put(key,file.stream(),{
+httpMetadata:{contentType:file.type}
+});
+
+await env.VIDEOS.put("meta/"+id+".json",JSON.stringify({
+key,
+title:String(form.get("title")||"Video").slice(0,150),
+type:file.type,
+size:file.size
+}));
+
+return json({url:new URL("/v/"+id,request.url).href});
+}catch(e){
+return json({error:e.message},500);
+}
+}
+
+const match=path.match(/^\/api\/media\/([a-f0-9]{16})$/);
+
+if(match&&request.method==="GET"){
+const obj=await env.VIDEOS.get("meta/"+match[1]+".json");
+if(!obj)return new Response("Video tidak ditemukan",{status:404});
+
+const meta=await obj.json();
+const head=await env.VIDEOS.head(meta.key);
+if(!head)return new Response("File tidak ditemukan",{status:404});
+
+const headers=new Headers({
+"Content-Type":meta.type||"video/mp4",
+"Accept-Ranges":"bytes",
+"Cache-Control":"public, max-age=3600"
+});
+
+const range=request.headers.get("Range");
+
+if(range){
+const m=/^bytes=(\d*)-(\d*)$/.exec(range);
+if(!m)return new Response(null,{status:416});
+
+let start=m[1]?Number(m[1]):0;
+let end=m[2]?Number(m[2]):head.size-1;
+
+if(!m[1]&&m[2]){
+start=Math.max(0,head.size-Number(m[2]));
+end=head.size-1;
+}
+if(start>end||start>=head.size)
+return new Response(null,{status:416});
+
+end=Math.min(end,head.size-1);
+const length=end-start+1;
+const part=await env.VIDEOS.get(meta.key,{
+range:{offset:start,length}
+});
+headers.set("Content-Range",`bytes ${start}-${end}/${head.size}`);
+headers.set("Content-Length",String(length));
+return new Response(part.body,{status:206,headers});
+}
+
+headers.set("Content-Length",String(head.size));
+const video=await env.VIDEOS.get(meta.key);
+return new Response(video.body,{headers});
+}
+
+if(path==="/"||/^\/v\/[a-f0-9]{16}$/.test(path)){
+return new Response(HTML,{
+headers:{"Content-Type":"text/html;charset=UTF-8"}
+});
+}
+
+return new Response("Not Found",{status:404});
+}
+};
